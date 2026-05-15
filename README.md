@@ -41,11 +41,21 @@ Peak category wins:
 | Natural language | 27.49 tok/s | 313.96 tok/s | +150% c=1 |
 | Extraction / JSON | 59.16 tok/s | 578.58 tok/s | +438% c=1 |
 
-## Quick Start
+## Quick Start: DGX Spark / GB10
+
+This path is designed for a fresh DGX Spark where Docker and the NVIDIA
+container runtime are already available. The container does not bake the model
+weights in; mount the target model and drafter as read-only volumes so updates
+are simple and repeatable.
+
+### 1. Prepare directories
 
 Download the target model and drafter on the Spark:
 
 ```bash
+sudo mkdir -p /models/deckard /models/gemma-dflash
+sudo chown -R "$USER:$USER" /models
+
 huggingface-cli download AEON-7/Gemma-4-31B-it-DECKARD-HERETIC-Uncensored-NVFP4 \
   --local-dir /models/deckard
 
@@ -53,10 +63,20 @@ huggingface-cli download z-lab/gemma-4-31B-it-DFlash \
   --local-dir /models/gemma-dflash
 ```
 
-Run the container:
+### 2. Pull the image
 
 ```bash
-docker run --rm --gpus all --ipc=host --network host \
+docker pull ghcr.io/aeon-7/gemma-4-31b-uncensored-nvfp4-dflash:latest
+```
+
+### 3. Start the server
+
+```bash
+docker rm -f gemma31-dflash 2>/dev/null || true
+
+docker run -d --gpus all --ipc=host --network host \
+  --name gemma31-dflash \
+  --restart unless-stopped \
   -v /models/deckard:/models/deckard:ro \
   -v /models/gemma-dflash:/models/gemma-dflash:ro \
   -e GPU_MEMORY_UTILIZATION=0.82 \
@@ -66,7 +86,41 @@ docker run --rm --gpus all --ipc=host --network host \
   ghcr.io/aeon-7/gemma-4-31b-uncensored-nvfp4-dflash:latest
 ```
 
-Endpoint:
+First boot can take several minutes while vLLM compiles graphs and FlashInfer
+autotunes FP4 kernels. Watch startup:
+
+```bash
+docker logs -f gemma31-dflash
+```
+
+### 4. Verify the endpoint
+
+Health check:
+
+```bash
+curl -fsS http://127.0.0.1:8000/health
+```
+
+List served model aliases:
+
+```bash
+curl -s http://127.0.0.1:8000/v1/models | python3 -m json.tool
+```
+
+Smoke-test chat:
+
+```bash
+curl http://127.0.0.1:8000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "deckard-31b",
+    "messages": [{"role": "user", "content": "Write one concise paragraph about why speculative decoding helps."}],
+    "max_tokens": 600,
+    "temperature": 0.2
+  }'
+```
+
+Endpoint for OpenAI-compatible clients:
 
 ```text
 http://localhost:8000/v1
@@ -83,6 +137,27 @@ gemma31-dflash
 For reasoning-heavy prompts, give the model a real output budget. Small
 `max_tokens` values can be consumed entirely by the reasoning trace before the
 final answer appears.
+
+### 5. Stop or update
+
+```bash
+docker pull ghcr.io/aeon-7/gemma-4-31b-uncensored-nvfp4-dflash:latest
+docker rm -f gemma31-dflash
+
+docker run -d --gpus all --ipc=host --network host \
+  --name gemma31-dflash \
+  --restart unless-stopped \
+  -v /models/deckard:/models/deckard:ro \
+  -v /models/gemma-dflash:/models/gemma-dflash:ro \
+  -e GPU_MEMORY_UTILIZATION=0.82 \
+  -e MAX_MODEL_LEN=65536 \
+  -e MAX_NUM_SEQS=16 \
+  -e MAX_NUM_BATCHED_TOKENS=32768 \
+  ghcr.io/aeon-7/gemma-4-31b-uncensored-nvfp4-dflash:latest
+```
+
+Recreate the container after image updates or runtime flag changes. A plain
+`docker start` reuses the old container image and old environment.
 
 ## Full DFlash Benchmark
 
@@ -154,6 +229,22 @@ The default run profile is intended to be a practical Spark serving profile:
 For pure short-context benchmarking, `MAX_MODEL_LEN=8192` leaves more room for
 parallel decode. For production long-context use, raise or lower the context
 limit according to your gateway's real workload.
+
+### Recommended Profiles
+
+Use these as starting points, then validate with your own workload.
+
+| Profile | `MAX_MODEL_LEN` | `MAX_NUM_SEQS` | `MAX_NUM_BATCHED_TOKENS` | `GPU_MEMORY_UTILIZATION` | Best for |
+|---|---:|---:|---:|---:|---|
+| Balanced Spark default | `65536` | `16` | `32768` | `0.82` | Agent gateways with one large chat plus smaller subagents. |
+| Short-context throughput | `8192` | `32` | `32768` | `0.80` | Benchmarking and high-concurrency short tasks. |
+| Long-context working chat | `131072` | `4` | `32768` | `0.82` | Fewer sessions with much larger context. |
+| Shared Spark services | `32768` | `8` | `32768` | `0.70-0.76` | Leaving room for ASR, TTS, embeddings, or ComfyUI. |
+
+If the system begins touching unified-memory limits, reduce
+`MAX_MODEL_LEN`, then `MAX_NUM_SEQS`, before raising
+`GPU_MEMORY_UTILIZATION`. Sustained memory pressure usually hurts latency more
+than a slightly smaller KV cache.
 
 ## API Examples
 
