@@ -4,7 +4,7 @@
 
 ### DGX Spark / GB10 container for Deckard Heretic 31B with official z-lab DFlash drafting
 
-[![Container](https://img.shields.io/badge/ghcr.io-gemma--4--31b--dflash-green?logo=docker)](https://github.com/users/AEON-7/packages/container/package/gemma-4-31b-uncensored-nvfp4-dflash)
+[![Container](https://img.shields.io/badge/ghcr.io-gemma--4--31b--dflash-green?logo=docker)](https://github.com/aeon-7/Gemma-4-31B-Uncensored-NVFP4-DFlash/pkgs/container/gemma-4-31b-uncensored-nvfp4-dflash)
 [![Model](https://img.shields.io/badge/HuggingFace-Gemma%204%2031B%20Deckard-yellow?logo=huggingface)](https://huggingface.co/AEON-7/Gemma-4-31B-it-DECKARD-HERETIC-Uncensored-NVFP4)
 [![DFlash](https://img.shields.io/badge/DFlash-z--lab%2Fgemma--4--31B--it--DFlash-purple)](https://huggingface.co/z-lab/gemma-4-31B-it-DFlash)
 [![License](https://img.shields.io/badge/License-Apache_2.0-green)](LICENSE)
@@ -239,4 +239,3 @@ that require branch-local recurrent-state replay. The intended future scorecard:
   when the reasoning parser is enabled.
 - This image is meant for DGX Spark / GB10. Other Blackwell systems may work,
   but the validation data here is GB10-specific.
-
